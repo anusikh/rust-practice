@@ -1,0 +1,16 @@
+version: '3.8'
+services:
+  mysqldb: 
+    container_name: mysqldb
+    image: mysql:5.7
+    ports: 
+      - "3306:3306"
+    volumes:
+      - ./db:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: "jwt_auth"
+      MYSQL_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: root
+volumes:
+  cache:
+    driver: local
