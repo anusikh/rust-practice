@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use actix::prelude::*;
-use rand::{rngs::ThreadRng, Rng};
 use serde_json::json;
+
+use actix::prelude::*;
+use rand::{self, rngs::ThreadRng, Rng};
 
 use crate::session;
 
@@ -50,16 +51,15 @@ pub struct ChatServer {
     rng: ThreadRng,
 }
 
-// NOTE: this is the server, session.rs contains the client
 impl ChatServer {
     pub fn new() -> ChatServer {
         let mut rooms = HashMap::new();
         rooms.insert("main".to_string(), HashSet::new());
 
-        ChatServer {
+        Self {
             sessions: HashMap::new(),
             rooms,
-            rng: rand::thread_rng(),
+            rng: rand::thread_rng()
         }
     }
 
@@ -80,36 +80,29 @@ impl Actor for ChatServer {
     type Context = Context<Self>;
 }
 
-// Connecting to chat server
 impl Handler<Connect> for ChatServer {
     type Result = usize;
 
-    fn handle(&mut self, msg: Connect, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: Connect, _: &mut Context<Self>) -> Self::Result {
         let id = self.rng.gen::<usize>();
         self.sessions.insert(id, msg.addr);
         self.rooms
             .entry("main".to_string())
             .or_insert_with(HashSet::new)
             .insert(id);
-        self.send_message(
-            "main",
-            &json!({
-                "value": vec![format!("{}", id)],
-                "chat_type": session::ChatType::CONNECT
-            })
-            .to_string(),
-            0,
-        );
+        self.send_message("main", &json!({
+            "value": vec![format!("{}", id)],
+            "chat_type": session::ChatType::CONNECT
+        }).to_string(), 0);
         id
     }
 }
 
-// Disconnecting from chat server
 impl Handler<Disconnect> for ChatServer {
     type Result = ();
 
-    fn handle(&mut self, msg: Disconnect, ctx: &mut Self::Context) -> Self::Result {
-        let mut rooms = vec![];
+    fn handle(&mut self, msg: Disconnect, _: &mut Self::Context) -> Self::Result {
+        let mut rooms: Vec<String> = vec![];
         if self.sessions.remove(&msg.id).is_some() {
             for (name, sessions) in &mut self.rooms {
                 if sessions.remove(&msg.id) {
@@ -117,23 +110,20 @@ impl Handler<Disconnect> for ChatServer {
                 }
             }
         }
+
         for room in rooms {
-            self.send_message(
-                "main",
-                &json!({
-                    "room": room,
-                    "value": vec![format!("Someone disconnect!")],
-                    "chat_type": session::ChatType::DISCONNECT
-                })
-                .to_string(),
-                0,
-            );
+            self.send_message("main", &json!({
+                "room": room,
+                "value": vec![format!("Someone disconnect!")],
+                "chat_type": session::ChatType::DISCONNECT
+            }).to_string(), 0);
         }
     }
 }
 
 impl Handler<ClientMessage> for ChatServer {
     type Result = ();
+
     fn handle(&mut self, msg: ClientMessage, _: &mut Self::Context) -> Self::Result {
         self.send_message(&msg.room, &msg.msg, msg.id);
     }
@@ -141,6 +131,7 @@ impl Handler<ClientMessage> for ChatServer {
 
 impl Handler<ListRooms> for ChatServer {
     type Result = MessageResult<ListRooms>;
+
     fn handle(&mut self, _: ListRooms, _: &mut Self::Context) -> Self::Result {
         let mut rooms = vec![];
         for key in self.rooms.keys() {
@@ -152,26 +143,25 @@ impl Handler<ListRooms> for ChatServer {
 
 impl Handler<Join> for ChatServer {
     type Result = ();
+
     fn handle(&mut self, msg: Join, _: &mut Self::Context) -> Self::Result {
-        let Join { id, name } = msg;
+        let Join {id, name} = msg;
         let mut rooms = vec![];
+
         for (n, sessions) in &mut self.rooms {
             if sessions.remove(&id) {
                 rooms.push(n.to_owned());
             }
         }
+
         for room in rooms {
-            self.send_message(
-                &room,
-                &json!({
-                    "room": room,
-                    "value": vec![format!("Someone disconnect!")],
-                    "chat_type": session::ChatType::DISCONNECT
-                })
-                .to_string(),
-                0,
-            );
+            self.send_message(&room, &json!({
+                "room": room,
+                "value": vec![format!("Someone disconnect!")],
+                "chat_type": session::ChatType::DISCONNECT
+            }).to_string(), 0);
         }
+
         self.rooms
             .entry(name.clone())
             .or_insert_with(HashSet::new)
