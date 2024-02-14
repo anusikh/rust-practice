@@ -1,0 +1,28 @@
+[package]
+name = "auth-2fa-actix"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix-cors = "0.7.0"
+actix-web = "4.5.1"
+base32 = "0.4.0"
+chrono = { version = "0.4.34", features = ["serde"] }
+dotenv = "0.15.0"
+env_logger = "0.11.2"
+rand = "0.8.5"
+serde = { version = "1.0.196", features = ["derive"] }
+serde_json = "1.0.113"
+totp-rs = "5.5.1"
+uuid = { version = "1.7.0", features = ["v4"] }
+diesel = { version = "2.0.3", features = ["postgres", "r2d2", "chrono", "uuid"] }
+
+# for jwt auth
+actix-web-httpauth = "0.8.0"
+hmac = "0.12.1"
+jwt = "0.16.0"
+sha2 = "0.10.6"
+argonautica = "0.2.0"
+
