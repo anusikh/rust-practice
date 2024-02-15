@@ -88,15 +88,21 @@ async fn login_user_handler(
         Ok(user) => {
             let hash_secret = std::env::var("HASH_SECRET").expect("HASH_SECRET must be set");
             let mut verifier = Verifier::default();
-            let is_valid = verifier
-                .with_hash(user.password)
-                .with_password(password)
-                .with_secret_key(hash_secret)
-                .verify()
-                .unwrap();
+
+            let is_valid = tokio::spawn(async move {
+                let res: bool = verifier
+                    .with_hash(user.password)
+                    .with_password(password)
+                    .with_secret_key(hash_secret)
+                    .verify()
+                    .unwrap();
+                res
+            })
+            .await
+            .unwrap();
 
             if is_valid {
-                let claims = TokenClaims { id: user.id };
+                let claims: TokenClaims = TokenClaims { id: user.id };
                 let token_str = claims.sign_with_key(&jwt_secret).unwrap();
                 let resp = GenericResponse {
                     status: "pass".to_string(),
