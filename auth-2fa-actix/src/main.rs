@@ -1,4 +1,5 @@
 pub mod db;
+pub mod middleware;
 pub mod model;
 pub mod response;
 pub mod schema;
@@ -7,7 +8,10 @@ pub mod service;
 use actix_web::{get, middleware::Logger, web::Data, App, HttpResponse, HttpServer, Responder};
 use serde_json::json;
 
-use crate::{db::Database, service::register_user_handler};
+use crate::{
+    db::Database,
+    service::{login_user_handler, register_user_handler},
+};
 
 #[get("/api/health")]
 async fn health_check_handler() -> impl Responder {
@@ -29,6 +33,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(Data::new(Database::new()))
             .service(health_check_handler)
+            .service(login_user_handler)
             .service(register_user_handler)
             .wrap(Logger::default())
     })

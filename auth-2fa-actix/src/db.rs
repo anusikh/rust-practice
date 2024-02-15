@@ -25,7 +25,7 @@ impl Database {
         Database { pool }
     }
 
-    pub fn get_existing_user(&self, entered_email: &str) -> bool {
+    pub fn if_user_exists(&self, entered_email: &str) -> bool {
         let res = select(exists(users.filter(email.eq(entered_email))))
             .get_result::<bool>(&mut self.pool.get().unwrap())
             .expect("something went wrong");
@@ -37,6 +37,13 @@ impl Database {
             .values(&user)
             .returning(User::as_returning())
             .execute(&mut self.pool.get().unwrap());
+        res
+    }
+
+    pub fn get_user_by_email(&self, user_email: &str) -> Result<User, Error> {
+        let res = users
+            .filter(email.eq(user_email))
+            .get_result::<User>(&mut self.pool.get().unwrap());
         res
     }
 }

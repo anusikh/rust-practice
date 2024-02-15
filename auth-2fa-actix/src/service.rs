@@ -1,12 +1,16 @@
 use actix_web::{post, web, HttpResponse, Responder};
-use argonautica::Hasher;
+use argonautica::{Hasher, Verifier};
 use chrono::Utc;
+use hmac::{Hmac, Mac};
+use jwt::SignWithKey;
 use serde_json::json;
+use sha2::Sha256;
 use uuid::Uuid;
 
 use crate::{
     db::Database,
-    model::{User, UserRegisterSchema},
+    middleware::auth_middleware::TokenClaims,
+    model::{User, UserLoginSchema, UserRegisterSchema},
     response::GenericResponse,
 };
 
@@ -16,7 +20,7 @@ async fn register_user_handler(
     data: web::Data<Database>,
     body: web::Json<UserRegisterSchema>,
 ) -> impl Responder {
-    let exiting_user = data.get_existing_user(&body.email);
+    let exiting_user = data.if_user_exists(&body.email);
     match exiting_user {
         true => {
             let resp = GenericResponse {
@@ -60,6 +64,59 @@ async fn register_user_handler(
                     );
                 }
             }
+        }
+    }
+}
+
+#[post("/auth/login")]
+async fn login_user_handler(
+    data: web::Data<Database>,
+    body: web::Json<UserLoginSchema>,
+) -> impl Responder {
+    let jwt_secret: Hmac<Sha256> = Hmac::new_from_slice(
+        std::env::var("JWT_SECRET")
+            .expect("JWT_SECRET must be set")
+            .as_bytes(),
+    )
+    .unwrap();
+
+    let email = body.email.to_owned();
+    let password = body.password.to_owned();
+
+    let user_from_db = data.get_user_by_email(&email);
+    match user_from_db {
+        Ok(user) => {
+            let hash_secret = std::env::var("HASH_SECRET").expect("HASH_SECRET must be set");
+            let mut verifier = Verifier::default();
+            let is_valid = verifier
+                .with_hash(user.password)
+                .with_password(password)
+                .with_secret_key(hash_secret)
+                .verify()
+                .unwrap();
+
+            if is_valid {
+                let claims = TokenClaims { id: user.id };
+                let token_str = claims.sign_with_key(&jwt_secret).unwrap();
+                let resp = GenericResponse {
+                    status: "pass".to_string(),
+                    message: token_str,
+                };
+                HttpResponse::Ok().json(resp)
+            } else {
+                let resp = GenericResponse {
+                    status: "failed".to_string(),
+                    message: "incorrect username or password".to_string(),
+                };
+                HttpResponse::Unauthorized().json(json!(resp))
+            }
+        }
+        Err(e) => {
+            let resp = GenericResponse {
+                status: "failed".to_string(),
+                message: format!("incorrect username or password {}", e.to_string()),
+            };
+            return HttpResponse::Conflict().json(resp);
         }
     }
 }
