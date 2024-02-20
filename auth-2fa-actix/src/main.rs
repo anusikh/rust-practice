@@ -5,12 +5,19 @@ pub mod response;
 pub mod schema;
 pub mod service;
 
-use actix_web::{get, middleware::Logger, web::Data, App, HttpResponse, HttpServer, Responder};
+use actix_web::{
+    get,
+    middleware::Logger,
+    web::{self, Data},
+    App, HttpResponse, HttpServer, Responder,
+};
+use actix_web_httpauth::middleware::HttpAuthentication;
 use serde_json::json;
 
 use crate::{
     db::Database,
-    service::{login_user_handler, register_user_handler},
+    middleware::auth_middleware::validator,
+    service::{generate_otp_handler, login_user_handler, register_user_handler},
 };
 
 #[get("/api/health")]
@@ -30,11 +37,18 @@ async fn main() -> std::io::Result<()> {
     println!("Server started successfully");
 
     HttpServer::new(move || {
+        let bearer_middleware = HttpAuthentication::bearer(validator);
+
         App::new()
             .app_data(Data::new(Database::new()))
             .service(health_check_handler)
             .service(login_user_handler)
             .service(register_user_handler)
+            .service(
+                web::scope("")
+                    .wrap(bearer_middleware)
+                    .service(generate_otp_handler),
+            )
             .wrap(Logger::default())
     })
     .bind(("127.0.0.1", 8080))?

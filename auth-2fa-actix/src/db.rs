@@ -32,6 +32,13 @@ impl Database {
         res
     }
 
+    pub fn if_user_exists_userid(&self, user_id: &str) -> bool {
+        let res = select(exists(users.filter(id.eq(user_id))))
+            .get_result::<bool>(&mut self.pool.get().unwrap())
+            .expect("something went wrong");
+        res
+    }
+
     pub fn add_user(&self, user: User) -> Result<usize, Error> {
         let res = diesel::insert_into(users)
             .values(&user)
@@ -43,6 +50,21 @@ impl Database {
     pub fn get_user_by_email(&self, user_email: &str) -> Result<User, Error> {
         let res = users
             .filter(email.eq(user_email))
+            .get_result::<User>(&mut self.pool.get().unwrap());
+        res
+    }
+
+    pub fn update_totp_for_user(
+        &self,
+        user_id: &str,
+        gen_otp_base32: &str,
+        gen_otp_auth_url: &str,
+    ) -> Result<User, Error> {
+        let res = diesel::update(users.find(&user_id))
+            .set((
+                otp_base32.eq(&gen_otp_base32),
+                otp_auth_url.eq(&gen_otp_auth_url),
+            ))
             .get_result::<User>(&mut self.pool.get().unwrap());
         res
     }

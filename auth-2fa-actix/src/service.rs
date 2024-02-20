@@ -1,16 +1,22 @@
-use actix_web::{post, web, HttpResponse, Responder};
+use actix_web::{
+    post,
+    web::{self, ReqData},
+    HttpResponse, Responder,
+};
 use argonautica::{Hasher, Verifier};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use jwt::SignWithKey;
+use rand::Rng;
 use serde_json::json;
 use sha2::Sha256;
+use totp_rs::{Secret, TOTP};
 use uuid::Uuid;
 
 use crate::{
     db::Database,
     middleware::auth_middleware::TokenClaims,
-    model::{User, UserLoginSchema, UserRegisterSchema},
+    model::{GenerateOTPSchema, User, UserLoginSchema, UserRegisterSchema},
     response::GenericResponse,
 };
 
@@ -68,6 +74,7 @@ async fn register_user_handler(
     }
 }
 
+// login user
 #[post("/auth/login")]
 async fn login_user_handler(
     data: web::Data<Database>,
@@ -103,7 +110,7 @@ async fn login_user_handler(
 
             if is_valid {
                 let claims: TokenClaims = TokenClaims { id: user.id };
-                let token_str = claims.sign_with_key(&jwt_secret).unwrap();
+                let token_str: String = claims.sign_with_key(&jwt_secret).unwrap();
                 let resp = GenericResponse {
                     status: "pass".to_string(),
                     message: token_str,
@@ -124,5 +131,65 @@ async fn login_user_handler(
             };
             return HttpResponse::Conflict().json(resp);
         }
+    }
+}
+
+#[post("/auth/otp/generate")]
+async fn generate_otp_handler(
+    data: web::Data<Database>,
+    req_user: Option<ReqData<TokenClaims>>,
+    body: web::Json<GenerateOTPSchema>,
+) -> impl Responder {
+    match req_user {
+        Some(u) => {
+            let user_exists = data.if_user_exists_userid(&u.id);
+            match user_exists {
+                true => {
+                    let mut rng = rand::thread_rng();
+                    let data_byte: [u8; 21] = rng.gen();
+
+                    let base32_string =
+                        base32::encode(base32::Alphabet::RFC4648 { padding: false }, &data_byte);
+                    let totp = TOTP::new(
+                        totp_rs::Algorithm::SHA1,
+                        6,
+                        1,
+                        30,
+                        Secret::Encoded(base32_string).to_bytes().unwrap(),
+                    )
+                    .unwrap();
+
+                    let otp_base32 = totp.get_secret_base32();
+                    let email = body.email.to_owned();
+                    let issuer = "anusikh";
+                    let otp_auth_url = format!(
+                        "otpauth://totp/{issuer}:{email}?secret={otp_base32}&issuer={issuer}"
+                    );
+
+                    let res = data.update_totp_for_user(&u.id, &otp_base32, &otp_auth_url);
+                    match res {
+                        Ok(_) => HttpResponse::Ok().json(json!(GenericResponse {
+                            status: "pass".to_string(),
+                            message: format!(
+                                "base32: {}, otp_auth_url: {}",
+                                otp_base32, otp_auth_url
+                            )
+                        })),
+                        Err(e) => HttpResponse::NotFound().json(json!(GenericResponse {
+                            status: "failed".to_string(),
+                            message: format!("something went wrong: {}", e.to_string())
+                        })),
+                    }
+                }
+                false => {
+                    let resp = GenericResponse {
+                        status: "failed".to_string(),
+                        message: format!("cannot find user {}", u.id),
+                    };
+                    HttpResponse::NotFound().json(resp)
+                }
+            }
+        }
+        _ => HttpResponse::Unauthorized().json("Unable to verify identity"),
     }
 }

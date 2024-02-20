@@ -10,12 +10,3 @@ services:
       POSTGRES_PASSWORD: root
     ports:
       - "5432:5432"
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: pgadmin4_container
-    restart: always
-    ports:
-      - "8888:80"
-    environment:
-      PGADMIN_DEFAULT_EMAIL: anusikh2001@gmail.com
-      PGADMIN_DEFAULT_PASSWORD: root
