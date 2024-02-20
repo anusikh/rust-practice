@@ -292,3 +292,27 @@ async fn validate_otp_handler(
         _ => HttpResponse::Unauthorized().json("Unable to verify identity"),
     }
 }
+
+#[post("/auth/otp/disable")]
+async fn disable_otp_handler(
+    data: web::Data<Database>,
+    req_user: Option<ReqData<TokenClaims>>,
+) -> impl Responder {
+    match req_user {
+        Some(u) => {
+            let res = data.update_totp_for_user(&u.id, "", "", false);
+            match res {
+                Ok(usr) => HttpResponse::Ok().json(
+                    json!({"status":"pass","user": user_to_response(&usr), "otp_disabled": true}),
+                ),
+                Err(e) => {
+                    return HttpResponse::NotFound().json(GenericResponse {
+                        status: "fail".to_string(),
+                        message: format!("something went wrong {}", e.to_string()),
+                    });
+                }
+            }
+        }
+        _ => HttpResponse::Unauthorized().json("Unable to verify identity"),
+    }
+}

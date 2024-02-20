@@ -80,8 +80,8 @@ impl Database {
                     .set((
                         otp_base32.eq(&gen_otp_base32),
                         otp_auth_url.eq(&gen_otp_auth_url),
-                        otp_base32.eq(&gen_otp_base32),
-                        otp_auth_url.eq(&gen_otp_auth_url),
+                        otp_enabled.eq(verified),
+                        otp_verified.eq(verified),
                     ))
                     .get_result::<User>(&mut self.pool.get().unwrap());
                 res

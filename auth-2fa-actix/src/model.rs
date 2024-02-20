@@ -40,8 +40,3 @@ pub struct GenerateOTPSchema {
 pub struct VerifyOTPSchema {
     pub token: String,
 }
-
-#[derive(Debug, Deserialize)]
-pub struct DisableOTPSchema {
-    pub user_id: String,
-}
