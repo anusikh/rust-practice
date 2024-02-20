@@ -7,3 +7,5 @@ HASH_SECRET=panda
 
 - run `diesel setup` to create db and table
 - `make <command-name>` to build, start server
+
+- you can use a qr code generator to generate qr using the totp url that is stored in the db

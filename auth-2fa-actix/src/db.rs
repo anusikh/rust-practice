@@ -54,18 +54,38 @@ impl Database {
         res
     }
 
+    pub fn get_user_by_userid(&self, user_id: &str) -> Result<User, Error> {
+        let res = users
+            .filter(id.eq(user_id))
+            .get_result::<User>(&mut self.pool.get().unwrap());
+        res
+    }
+
     pub fn update_totp_for_user(
         &self,
         user_id: &str,
         gen_otp_base32: &str,
         gen_otp_auth_url: &str,
+        verified: bool,
     ) -> Result<User, Error> {
-        let res = diesel::update(users.find(&user_id))
-            .set((
-                otp_base32.eq(&gen_otp_base32),
-                otp_auth_url.eq(&gen_otp_auth_url),
-            ))
-            .get_result::<User>(&mut self.pool.get().unwrap());
-        res
+        match verified {
+            true => {
+                let res = diesel::update(users.find(&user_id))
+                    .set((otp_enabled.eq(verified), otp_verified.eq(verified)))
+                    .get_result::<User>(&mut self.pool.get().unwrap());
+                res
+            }
+            false => {
+                let res: Result<User, Error> = diesel::update(users.find(&user_id))
+                    .set((
+                        otp_base32.eq(&gen_otp_base32),
+                        otp_auth_url.eq(&gen_otp_auth_url),
+                        otp_base32.eq(&gen_otp_base32),
+                        otp_auth_url.eq(&gen_otp_auth_url),
+                    ))
+                    .get_result::<User>(&mut self.pool.get().unwrap());
+                res
+            }
+        }
     }
 }

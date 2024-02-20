@@ -17,7 +17,10 @@ use serde_json::json;
 use crate::{
     db::Database,
     middleware::auth_middleware::validator,
-    service::{generate_otp_handler, login_user_handler, register_user_handler},
+    service::{
+        generate_otp_handler, login_user_handler, register_user_handler, validate_otp_handler,
+        verify_otp_handler,
+    },
 };
 
 #[get("/api/health")]
@@ -47,7 +50,9 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("")
                     .wrap(bearer_middleware)
-                    .service(generate_otp_handler),
+                    .service(generate_otp_handler)
+                    .service(verify_otp_handler)
+                    .service(validate_otp_handler),
             )
             .wrap(Logger::default())
     })

@@ -16,8 +16,8 @@ use uuid::Uuid;
 use crate::{
     db::Database,
     middleware::auth_middleware::TokenClaims,
-    model::{GenerateOTPSchema, User, UserLoginSchema, UserRegisterSchema},
-    response::GenericResponse,
+    model::{GenerateOTPSchema, User, UserLoginSchema, UserRegisterSchema, VerifyOTPSchema},
+    response::{user_to_response, GenericResponse},
 };
 
 // register user
@@ -66,7 +66,7 @@ async fn register_user_handler(
                     .json(json!({"status": "success", "message": "registration successful"})),
                 Err(e) => {
                     return HttpResponse::Conflict().json(
-                        json!({"status": "failed", "message": "could not register", "error": e.to_string()}),
+                        json!({"status": "fail", "message": "could not register", "error": e.to_string()}),
                     );
                 }
             }
@@ -111,14 +111,10 @@ async fn login_user_handler(
             if is_valid {
                 let claims: TokenClaims = TokenClaims { id: user.id };
                 let token_str: String = claims.sign_with_key(&jwt_secret).unwrap();
-                let resp = GenericResponse {
-                    status: "pass".to_string(),
-                    message: token_str,
-                };
-                HttpResponse::Ok().json(resp)
+                HttpResponse::Ok().json(json!({"status": "pass".to_string(), "jwt_token": token_str, "2FA_enabled": user.otp_enabled}))
             } else {
                 let resp = GenericResponse {
-                    status: "failed".to_string(),
+                    status: "fail".to_string(),
                     message: "incorrect username or password".to_string(),
                 };
                 HttpResponse::Unauthorized().json(json!(resp))
@@ -126,7 +122,7 @@ async fn login_user_handler(
         }
         Err(e) => {
             let resp = GenericResponse {
-                status: "failed".to_string(),
+                status: "fail".to_string(),
                 message: format!("incorrect username or password {}", e.to_string()),
             };
             return HttpResponse::Conflict().json(resp);
@@ -166,7 +162,7 @@ async fn generate_otp_handler(
                         "otpauth://totp/{issuer}:{email}?secret={otp_base32}&issuer={issuer}"
                     );
 
-                    let res = data.update_totp_for_user(&u.id, &otp_base32, &otp_auth_url);
+                    let res = data.update_totp_for_user(&u.id, &otp_base32, &otp_auth_url, false);
                     match res {
                         Ok(_) => HttpResponse::Ok().json(json!(GenericResponse {
                             status: "pass".to_string(),
@@ -176,18 +172,121 @@ async fn generate_otp_handler(
                             )
                         })),
                         Err(e) => HttpResponse::NotFound().json(json!(GenericResponse {
-                            status: "failed".to_string(),
+                            status: "fail".to_string(),
                             message: format!("something went wrong: {}", e.to_string())
                         })),
                     }
                 }
                 false => {
                     let resp = GenericResponse {
-                        status: "failed".to_string(),
+                        status: "fail".to_string(),
                         message: format!("cannot find user {}", u.id),
                     };
                     HttpResponse::NotFound().json(resp)
                 }
+            }
+        }
+        _ => HttpResponse::Unauthorized().json("Unable to verify identity"),
+    }
+}
+
+#[post("/auth/otp/verify")]
+async fn verify_otp_handler(
+    data: web::Data<Database>,
+    req_user: Option<ReqData<TokenClaims>>,
+    body: web::Json<VerifyOTPSchema>,
+) -> impl Responder {
+    match req_user {
+        Some(u) => {
+            let user = data.get_user_by_userid(&u.id);
+            match user {
+                Ok(us) => {
+                    let totp = TOTP::new(
+                        totp_rs::Algorithm::SHA1,
+                        6,
+                        1,
+                        30,
+                        Secret::Encoded(us.otp_base32.unwrap()).to_bytes().unwrap(),
+                    )
+                    .unwrap();
+
+                    let is_valid = totp.check_current(&body.token).unwrap();
+                    if !is_valid {
+                        let json_error = GenericResponse {
+                            status: "fail".to_string(),
+                            message: "Token is invalid or user doesn't exist".to_string(),
+                        };
+                        return HttpResponse::Forbidden().json(json_error);
+                    }
+
+                    let res = data.update_totp_for_user(&u.id, "", "", true);
+                    match res {
+                        Ok(usr) => HttpResponse::Ok().json(json!(
+                            {"status":"pass","otp_verified": true, "user": user_to_response(&usr)}
+                        )),
+                        Err(e) => HttpResponse::NotFound().json(GenericResponse {
+                            status: "fail".to_string(),
+                            message: format!("something went wrong {}", e.to_string()),
+                        }),
+                    }
+                }
+                Err(e) => HttpResponse::NotFound().json(GenericResponse {
+                    status: "fail".to_string(),
+                    message: format!("something went wrong {}", e.to_string()),
+                }),
+            }
+        }
+        _ => HttpResponse::Unauthorized().json("Unable to verify identity"),
+    }
+}
+
+#[post("/auth/otp/validate")]
+async fn validate_otp_handler(
+    data: web::Data<Database>,
+    req_user: Option<ReqData<TokenClaims>>,
+    body: web::Json<VerifyOTPSchema>,
+) -> impl Responder {
+    match req_user {
+        Some(u) => {
+            let user = data.get_user_by_userid(&u.id);
+            match user {
+                Ok(us) => {
+                    if !us.otp_enabled {
+                        let json_error = GenericResponse {
+                            status: "fail".to_string(),
+                            message: "2FA not enabled".to_string(),
+                        };
+
+                        return HttpResponse::Forbidden().json(json_error);
+                    }
+
+                    let totp = TOTP::new(
+                        totp_rs::Algorithm::SHA1,
+                        6,
+                        1,
+                        30,
+                        Secret::Encoded(us.otp_base32.unwrap()).to_bytes().unwrap(),
+                    )
+                    .unwrap();
+
+                    let is_valid = totp.check_current(&body.token).unwrap();
+                    if !is_valid {
+                        let json_error = GenericResponse {
+                            status: "fail".to_string(),
+                            message: "Token is invalid or user doesn't exist".to_string(),
+                        };
+                        return HttpResponse::Forbidden().json(json_error);
+                    }
+
+                    HttpResponse::Ok().json(GenericResponse {
+                        status: "pass".to_string(),
+                        message: "verified".to_string(),
+                    })
+                }
+                Err(e) => HttpResponse::NotFound().json(GenericResponse {
+                    status: "fail".to_string(),
+                    message: format!("something went wrong {}", e.to_string()),
+                }),
             }
         }
         _ => HttpResponse::Unauthorized().json("Unable to verify identity"),
